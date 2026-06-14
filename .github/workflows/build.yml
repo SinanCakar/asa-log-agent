@@ -44,7 +44,10 @@ jobs:
           asa_log_agent.py
 
       - name: Build calibration exe
-        run: pyinstaller --onefile --name ASA_LogAgent_Calibrate calibrate.py
+        run: >
+          pyinstaller --onefile --name ASA_LogAgent_Calibrate
+          --hidden-import tkinter --hidden-import PIL.ImageTk
+          calibrate.py
 
       - name: Download pinned Tesseract installer
         shell: pwsh
