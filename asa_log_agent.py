@@ -59,6 +59,18 @@ def _data_dir() -> str:
 
 
 HERE = _data_dir()
+LOG_PATH = os.path.join(HERE, "agent.log")
+
+
+def logf(msg: str) -> None:
+    """Best-effort timestamped line to agent.log (next to config). Truncates if large."""
+    try:
+        if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > 1_000_000:
+            os.replace(LOG_PATH, LOG_PATH + ".1")
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
 
 
 def load_config(path: str) -> dict:
@@ -210,6 +222,7 @@ def run(cfg: dict, dry: bool, once: bool) -> int:
             return 0
         except Exception as e:
             print("capture/parse error:", str(e)[:160], flush=True)
+            logf(f"capture/parse error: {e!r}")
         if once:
             return 0
         time.sleep(cfg["interval"])
@@ -225,6 +238,7 @@ def main() -> None:
     args = ap.parse_args()
 
     print(f"ASA Log Agent {updater.__version__}", flush=True)
+    logf(f"=== started {updater.__version__} (dry={args.dry}, once={args.once}) ===")
     if args.update:
         sys.exit(updater.download_and_launch())
     if not args.no_update_check:
@@ -237,4 +251,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        import traceback
+        tb = traceback.format_exc()
+        logf("CRASH:\n" + tb)
+        print("\n*** ERROR — details written to:", LOG_PATH, "***", flush=True)
+        print(tb, flush=True)
+        try:
+            input("\nPress Enter to close...")  # keep window open when double-clicked
+        except EOFError:
+            pass
+        sys.exit(1)
