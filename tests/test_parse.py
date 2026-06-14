@@ -105,17 +105,6 @@ def test_parse_text_block_and_dedup_friendly():
     assert [e.category for e in events] == ["raid", "member"]
 
 
-def test_turkish_classification():
-    # Bilingual phrase layer: Turkish lines classify like their English equivalents.
-    assert lp.parse_line("Day 4, 16:30:00: 'Metal Duvar' yok edildi!").category == "raid"
-    assert lp.parse_line("Day 4, 16:31:00: Sinan Raptor tarafindan olduruldu!").category == "kill"
-    assert lp.parse_line("Day 4, 16:32:00: Bob Kabileye eklendi!").category == "member"
-    assert lp.parse_line("Day 4, 16:33:00: Bir Raptor evcillestirildi!").category == "tame"
-    assert lp.parse_line("Day 4, 16:34:00: Desmodus dogdu!").category == "tame"
-    # accent-folding: real OCR keeps Turkish chars, must still match
-    assert lp.parse_line("Day 4, 16:30:00: 'Taş Duvar' yıkıldı!").category == "raid"
-
-
 def test_user_rules_override_severity():
     ev = lp.parse_line("Day 1, 09:00:00: Bob was added to the Tribe!")
     assert ev.severity == "medium"

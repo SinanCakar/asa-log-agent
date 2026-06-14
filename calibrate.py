@@ -73,7 +73,7 @@ def _run(shot_only: bool) -> None:
     w, h = save_screenshot(shot_path)
     print("=" * 60, flush=True)
     print(f"Screenshot saved to:\n  {shot_path}", flush=True)
-    print(f"(it is in the SAME folder as this .exe — screen {w}x{h})", flush=True)
+    print(f"(it is in the SAME folder as this .exe - screen {w}x{h})", flush=True)
     print("=" * 60, flush=True)
     print("Open that PNG, find the TRIBE-LOG panel, read its rectangle.", flush=True)
     if shot_only:

@@ -36,30 +36,20 @@ for _cat, _kws in CATEGORY_KEYWORDS.items():
         _KW_TO_CAT[_kw] = _cat
 _VOCAB = list(_KW_TO_CAT)
 
-# Bilingual PHRASE triggers (substring match on an accent-folded line). Handles
-# multi-word Turkish strings ("Kabileye eklendi", "yok edildi") and is tolerant
-# to Turkish-char OCR slips because both sides are accent-folded. English phrases
-# included so a mixed-language server still classifies. Refine with real strings.
+# PHRASE triggers (substring match on a normalized line) for multi-word events
+# that aren't a single token, e.g. "added to the tribe".
 PHRASE_KEYWORDS = {
-    "raid": ["yok edildi", "yikildi", "sokuldu", "imha", "tahrip",
-             "destroyed", "demolished", "auto-decay"],
-    "kill": ["olduruldu", "oldurdu", "katledildi", "killed", "slain"],
-    "member": ["kabileye eklendi", "kabileden cikarildi", "kabileye katildi",
-               "kabileden ayrildi", "kabileye ait", "added to the tribe",
-               "removed from the tribe", "was added", "was removed"],
-    "tame": ["evcillestir", "ele gecir", "dogdu", "yumurtadan",
-             "tamed", "hatched", "imprint", "raised"],
-    "claim": ["sahiplen", "sahiplikten", "yuklendi", "indirildi",
-              "claimed", "unclaimed", "uploaded", "downloaded"],
+    "raid": ["destroyed", "demolished", "auto-decay"],
+    "kill": ["killed", "slain"],
+    "member": ["added to the tribe", "removed from the tribe", "was added", "was removed"],
+    "tame": ["tamed", "hatched", "imprint", "raised"],
+    "claim": ["claimed", "unclaimed", "uploaded", "downloaded"],
 }
-_TR_FOLD = str.maketrans("ıİşŞçÇğĞüÜöÖ", "iissccgguuoo")
 
 
 def _fold(text: str) -> str:
-    """Lowercase + strip Turkish accents + collapse to single spaces, for an
-    OCR-/locale-tolerant substring match."""
-    t = text.translate(_TR_FOLD).lower()
-    return " ".join(re.findall(r"[a-z0-9]+", t))
+    """Lowercase + collapse to single spaces for a tolerant substring match."""
+    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
 
 
 _FOLDED_PHRASES = [(_fold(p), cat) for cat, ps in PHRASE_KEYWORDS.items() for p in ps]

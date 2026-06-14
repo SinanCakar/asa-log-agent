@@ -56,21 +56,21 @@ def download_and_launch() -> int:
     """Download the latest Setup.exe and launch it. Returns process exit code."""
     tag, setup = latest_release()
     if not setup:
-        print("Guncelleme bulunamadi (zaten guncel olabilirsin).", flush=True)
+        print("No update found (you may already be up to date).", flush=True)
         return 0
     import tempfile
     dst = os.path.join(tempfile.gettempdir(), "ASA_LogAgent_Setup.exe")
-    print(f"Yeni surum {tag} indiriliyor...", flush=True)
+    print(f"Downloading new version {tag}...", flush=True)
     try:
         req = urllib.request.Request(setup, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=60) as r, open(dst, "wb") as f:
             f.write(r.read())
     except Exception as e:
-        print("Indirme hatasi:", str(e)[:120], flush=True)
+        print("Download error:", str(e)[:120], flush=True)
         return 1
-    print(f"Indirildi: {dst}\nKurulum baslatiliyor (mevcut ayarlarin korunur)...", flush=True)
+    print(f"Downloaded: {dst}\nLaunching installer (your existing settings are kept)...", flush=True)
     if os.name == "nt":
         os.startfile(dst)  # noqa: type-ignore[attr-defined]
     else:
-        print("(Windows disi: kurulumu elle calistir.)", flush=True)
+        print("(Non-Windows: run the installer manually.)", flush=True)
     return 0

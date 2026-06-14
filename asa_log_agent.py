@@ -181,8 +181,8 @@ def run(cfg: dict, dry: bool, once: bool) -> int:
 
     print(f"Capturing region={cfg['region']} every {cfg['interval']}s "
           f"-> {'(dry)' if dry else cfg['api_url']}", flush=True)
-    print("Tribe-log panelini ekranda acik tut. Sadece 'Day N, HH:MM:SS:' satirlari "
-          "gonderilir. (Ctrl+C ile cikis)", flush=True)
+    print("Keep the tribe-log panel visible. Only 'Day N, HH:MM:SS:' lines are "
+          "sent. (Ctrl+C to quit)", flush=True)
     scan = 0
     while True:
         try:
@@ -197,8 +197,8 @@ def run(cfg: dict, dry: bool, once: bool) -> int:
                     fresh.append(d)
                     print(f"  [{ev.severity}] {ev.category}: {ev.raw}", flush=True)
             # Heartbeat so it never looks frozen: chars OCR'd / log lines / new.
-            print(f"  tarama #{scan}: {len(text.strip())} karakter, "
-                  f"{len(events)} log satiri, {len(fresh)} yeni", flush=True)
+            print(f"  scan #{scan}: {len(text.strip())} chars, "
+                  f"{len(events)} log line(s), {len(fresh)} new", flush=True)
             if fresh and not dry:
                 pending = queue.drain() + fresh
                 if post(cfg["api_url"], cfg["token"], cfg["server_label"], pending):
@@ -230,8 +230,8 @@ def main() -> None:
     if not args.no_update_check:
         tag, setup = updater.check()
         if tag:
-            print(f"*** YENI SURUM VAR: {tag} (mevcut {updater.__version__}) ***", flush=True)
-            print(f"    Guncelle: ASA_LogAgent.exe --update   |  indir: {setup}", flush=True)
+            print(f"*** UPDATE AVAILABLE: {tag} (current {updater.__version__}) ***", flush=True)
+            print(f"    Update: ASA_LogAgent.exe --update   |  download: {setup}", flush=True)
 
     sys.exit(run(load_config(args.config), args.dry, args.once))
 

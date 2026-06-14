@@ -34,23 +34,23 @@ Source: "..\README.txt";                       DestDir: "{app}"; Flags: ignoreve
 Source: "vendor\tesseract-setup.exe";          DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Tasks]
-Name: "installtess"; Description: "Tesseract-OCR 5.3.3 (OCR motoru) kur - gerekli"; GroupDescription: "Bilesenler:"
-Name: "desktopicon"; Description: "Masaustu kisayolu olustur"; GroupDescription: "Kisayollar:"; Flags: unchecked
+Name: "installtess"; Description: "Install Tesseract-OCR 5.3.3 (OCR engine) - required"; GroupDescription: "Components:"
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Icons]
 Name: "{group}\ASA Log Agent";              Filename: "{app}\ASA_LogAgent.exe"
-Name: "{group}\ASA Log Agent (Kalibrasyon)"; Filename: "{app}\ASA_LogAgent_Calibrate.exe"
-Name: "{group}\Kaldir";                      Filename: "{uninstallexe}"
+Name: "{group}\ASA Log Agent (Calibrate)";  Filename: "{app}\ASA_LogAgent_Calibrate.exe"
+Name: "{group}\Uninstall";                  Filename: "{uninstallexe}"
 Name: "{autodesktop}\ASA Log Agent";        Filename: "{app}\ASA_LogAgent.exe"; Tasks: desktopicon
 
 [Run]
 ; Tesseract NSIS installer run VISIBLY so the user sees and approves exactly what
 ; is installed. /D sets the default dir (must be last, unquoted); no /S = shows UI.
 Filename: "{tmp}\tesseract-setup.exe"; Parameters: "/D=C:\Program Files\Tesseract-OCR"; \
-  StatusMsg: "Tesseract-OCR kurulum penceresi aciliyor (devam icin onayla)..."; \
+  StatusMsg: "Opening the Tesseract-OCR installer (approve it to continue)..."; \
   Flags: waituntilterminated; Tasks: installtess
 ; Offer to run calibration right after install (game should be open).
-Filename: "{app}\ASA_LogAgent_Calibrate.exe"; Description: "Simdi ekran bolgesini kalibre et"; \
+Filename: "{app}\ASA_LogAgent_Calibrate.exe"; Description: "Calibrate the screen region now"; \
   Flags: postinstall skipifsilent nowait
 
 [Code]
@@ -60,12 +60,12 @@ var
 procedure InitializeWizard;
 begin
   CfgPage := CreateInputQueryPage(wpSelectDir,
-    'ASA Log Agent ayarlari',
-    'Bot baglanti bilgileri',
-    'Discord''ta  /log key  ile aldigin token''i, oynadigin sunucu adini ve ' +
-    'botunun ingest adresini gir. Bunlar agent.ini''ye otomatik yazilacak.');
+    'ASA Log Agent settings',
+    'Bot connection details',
+    'Enter the token from  /log key  in Discord, the server you play on, and ' +
+    'your bot ingest URL. These are written to agent.ini automatically.');
   CfgPage.Add('Ingest token (/log key):', False);
-  CfgPage.Add('Sunucu etiketi (orn: the_island 7777):', False);
+  CfgPage.Add('Server label (e.g. the_island 7777):', False);
   CfgPage.Add('Bot ingest URL (HTTPS):', False);
   CfgPage.Values[2] := 'https://ingest.machinebot.tr/ingest/logs';
 end;
@@ -96,7 +96,7 @@ begin
   begin
     if Trim(CfgPage.Values[0]) = '' then
     begin
-      MsgBox('Token bos olamaz. Discord''ta /log key calistirip token al.', mbError, MB_OK);
+      MsgBox('Token cannot be empty. Run /log key in Discord to get one.', mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -116,7 +116,7 @@ begin
     'token = ' + Trim(CfgPage.Values[0]) + #13#10 +
     'server_label = ' + Trim(CfgPage.Values[1]) + #13#10 +
     'interval = 3' + #13#10 +
-    '; region: ASA_LogAgent_Calibrate ile doldurulur (x,y,genislik,yukseklik)' + #13#10 +
+    '; region: filled by ASA_LogAgent_Calibrate (x,y,width,height)' + #13#10 +
     'region = ' + #13#10 +
     'fuzzy_threshold = 0.72' + #13#10 +
     'tesseract_path = C:\Program Files\Tesseract-OCR\tesseract.exe' + #13#10 +
@@ -141,7 +141,7 @@ begin
   begin
     // Settings + local data live next to the exe (single-folder install).
     appDir := ExpandConstant('{app}');
-    if MsgBox('Ayarlarini ve verilerini de sil? (agent.ini + token, kuyruk, ekran goruntusu)',
+    if MsgBox('Also delete your settings and data? (agent.ini + token, queue, screenshot)',
               mbConfirmation, MB_YESNO) = IDYES then
     begin
       DeleteFile(appDir + '\agent.ini');
@@ -155,7 +155,7 @@ begin
     // Tesseract was installed by its own installer, so remove it separately.
     tessUninst := 'C:\Program Files\Tesseract-OCR\uninstall.exe';
     if FileExists(tessUninst) then
-      if MsgBox('Tesseract-OCR da kaldirilsin mi? (baska program kullanmiyorsa Evet)',
+      if MsgBox('Also remove Tesseract-OCR? (choose Yes if no other app uses it)',
                 mbConfirmation, MB_YESNO) = IDYES then
         Exec(tessUninst, '', '', SW_SHOW, ewWaitUntilTerminated, rc);
   end;
