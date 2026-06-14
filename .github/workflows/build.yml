@@ -1,0 +1,89 @@
+name: build-windows-exe
+
+# Every push to main produces a new versioned Release automatically.
+# Version = v0.1.<run_number> (monotonic, unique per build). Manual runs too.
+# Tesseract-OCR is NOT bundled; users install it separately (see README.txt).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # create releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compute version
+        id: ver
+        shell: bash
+        run: echo "version=v0.1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Bake version into the build
+        shell: bash
+        run: echo "__version__ = \"v0.1.${{ github.run_number }}\"" > _version.py
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build agent exe
+        run: >
+          pyinstaller --onefile --name ASA_LogAgent
+          --add-data "agent.ini;."
+          --hidden-import _version
+          asa_log_agent.py
+
+      - name: Build calibration exe
+        run: pyinstaller --onefile --name ASA_LogAgent_Calibrate calibrate.py
+
+      - name: Download pinned Tesseract installer
+        shell: pwsh
+        env:
+          # Version-locked UB-Mannheim Tesseract build (change here to bump).
+          TESS_URL: "https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-5.3.3.20231005.exe"
+        run: |
+          New-Item -ItemType Directory -Force -Path installer/vendor | Out-Null
+          Invoke-WebRequest -Uri $env:TESS_URL -OutFile installer/vendor/tesseract-setup.exe
+          Write-Host "Tesseract installer size:" (Get-Item installer/vendor/tesseract-setup.exe).Length
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Setup.exe
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=${{ steps.ver.outputs.version }}" `
+            installer/installer.iss
+
+      - name: Stage release bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bundle | Out-Null
+          Copy-Item installer/output/ASA_LogAgent_Setup.exe bundle/
+          Copy-Item dist/ASA_LogAgent.exe bundle/
+          Copy-Item dist/ASA_LogAgent_Calibrate.exe bundle/
+          Copy-Item agent.ini bundle/
+          Copy-Item README.txt bundle/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ASA_LogAgent-${{ steps.ver.outputs.version }}
+          path: bundle/*
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: ${{ steps.ver.outputs.version }}
+          files: bundle/*

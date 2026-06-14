@@ -1,0 +1,5 @@
+# ASA Log Agent (Windows OCR client) — separate from the bot's requirements.
+# Tesseract-OCR is an external binary, installed separately (see README.txt).
+mss>=9.0.1
+pytesseract>=0.3.13
+Pillow>=10.0.0
