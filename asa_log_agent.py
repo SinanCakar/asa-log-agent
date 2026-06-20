@@ -172,7 +172,7 @@ def _norm(raw: str) -> str:
     return _NORM_RE.sub("", raw.lower())
 
 
-def run(cfg: dict, dry: bool, once: bool, stop_event=None, notify_fn=None) -> int:
+def run(cfg: dict, dry: bool, once: bool, stop_event=None, pause_event=None, notify_fn=None) -> int:
     if cfg["region"] is None:
         region = None
         if _calibrate is not None:
@@ -213,6 +213,12 @@ def run(cfg: dict, dry: bool, once: bool, stop_event=None, notify_fn=None) -> in
           "sent. (Ctrl+C to quit)", flush=True)
     scan = 0
     while not (stop_event and stop_event.is_set()):
+        if pause_event and pause_event.is_set():
+            if stop_event:
+                stop_event.wait(0.3)
+            else:
+                time.sleep(0.3)
+            continue
         try:
             scan += 1
             img = ocr.grab_region(cfg["region"])
@@ -270,24 +276,31 @@ def main() -> None:
     logf(f"=== started {updater.__version__} (dry={args.dry}, once={args.once}) ===")
     if args.update:
         sys.exit(updater.download_and_launch())
+
+    startup_update = None
     if not args.no_update_check:
-        tag, setup = updater.check()
-        if tag:
-            logf(f"UPDATE AVAILABLE: {tag}")
-            print(f"*** UPDATE AVAILABLE: {tag} (current {updater.__version__}) ***", flush=True)
-            print(f"    Update: ASA_LogAgent.exe --update   |  download: {setup}", flush=True)
+        try:
+            tag, _ = updater.check()
+            if tag:
+                startup_update = tag
+                logf(f"UPDATE AVAILABLE: {tag}")
+        except Exception:
+            pass
 
     cfg = load_config(args.config)
     tray_mode = not (args.dry or args.once or args.console)
     if tray_mode:
         try:
             from systray import run_tray
-            run_tray(cfg, HERE, run, updater.__version__)
+            run_tray(cfg, HERE, run, updater.__version__, startup_update=startup_update)
             sys.exit(0)
         except Exception as exc:
             logf(f"tray failed: {exc!r}")
             sys.exit(f"ERROR: system tray unavailable ({exc}). Run with --console flag.")
 
+    if startup_update:
+        print(f"*** UPDATE AVAILABLE: {startup_update} (current {updater.__version__}) ***",
+              flush=True)
     print(f"ASA Log Agent {updater.__version__}", flush=True)
     sys.exit(run(cfg, args.dry, args.once))
 
