@@ -212,8 +212,9 @@ def run(cfg: dict, dry: bool, once: bool, stop_event=None, pause_event=None,
 
     print(f"Capturing region={cfg['region']} every {cfg['interval']}s "
           f"-> {'(dry)' if dry else cfg['api_url']}", flush=True)
-    print("Keep the tribe-log panel visible. Only 'Day N, HH:MM:SS:' lines are "
-          "sent. (Ctrl+C to quit)", flush=True)
+    quit_hint = "Quit via tray menu" if stop_event else "Ctrl+C to quit"
+    print(f"Keep the tribe-log panel visible. Only 'Day N, HH:MM:SS:' lines are sent. "
+          f"({quit_hint})", flush=True)
     scan = 0
     while not (stop_event and stop_event.is_set()):
         if pause_event and pause_event.is_set():
