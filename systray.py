@@ -4,7 +4,7 @@ Thread model:
 - Main thread: pystray message loop (required by Windows).
 - setup() callback: starts the agent daemon thread after icon is visible.
 - Menu callbacks: run on the pystray thread; slow ops (recalibrate, update
-  check) are delegated to short-lived daemon threads.
+  check, log viewer) are delegated to short-lived daemon threads.
 """
 from __future__ import annotations
 
@@ -15,6 +15,105 @@ import sys
 import threading
 from typing import Callable
 
+# ── Windows autostart registry helpers ───────────────────────────────────────
+
+_AUTOSTART_KEY  = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_AUTOSTART_NAME = "ASA Log Agent"
+
+
+def _get_autostart() -> bool:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY) as k:
+            winreg.QueryValueEx(k, _AUTOSTART_NAME)
+            return True
+    except Exception:
+        return False
+
+
+def _set_autostart(enable: bool) -> None:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY,
+                            0, winreg.KEY_SET_VALUE) as k:
+            if enable:
+                exe = sys.executable if getattr(sys, "frozen", False) else sys.argv[0]
+                winreg.SetValueEx(k, _AUTOSTART_NAME, 0, winreg.REG_SZ, f'"{exe}"')
+            else:
+                try:
+                    winreg.DeleteValue(k, _AUTOSTART_NAME)
+                except FileNotFoundError:
+                    pass
+    except Exception:
+        pass
+
+# ── Log viewer window ─────────────────────────────────────────────────────────
+
+_SEV_COLORS = {
+    "critical": "#ff5555",
+    "high":     "#ffaa00",
+    "medium":   "#ffdd44",
+    "low":      "#88dd88",
+}
+_INFO_COLOR = "#999999"
+
+
+def _show_log_window(here: str) -> None:
+    """Open a small Tkinter window showing the last 300 lines of agent.log."""
+    import re
+    import tkinter as tk
+    from tkinter import scrolledtext
+
+    log_path = os.path.join(here, "agent.log")
+    _sev_re  = re.compile(r"\[(critical|high|medium|low)\]")
+
+    root = tk.Tk()
+    root.title("ASA Log Agent — Event Log")
+    root.geometry("800x440")
+    root.configure(bg="#1e1e1e")
+
+    txt = scrolledtext.ScrolledText(
+        root, wrap=tk.WORD, state=tk.DISABLED,
+        font=("Consolas", 9), bg="#1e1e1e", fg="#d4d4d4",
+        insertbackground="#d4d4d4", relief=tk.FLAT,
+    )
+    txt.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 4))
+
+    for tag, color in _SEV_COLORS.items():
+        txt.tag_configure(tag, foreground=color)
+    txt.tag_configure("info", foreground=_INFO_COLOR)
+
+    def refresh():
+        try:
+            with open(log_path, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()[-300:]
+        except FileNotFoundError:
+            lines = ["(agent.log not found — the agent hasn't run yet)\n"]
+        txt.config(state=tk.NORMAL)
+        txt.delete("1.0", tk.END)
+        for line in lines:
+            m   = _sev_re.search(line)
+            tag = m.group(1) if m else "info"
+            txt.insert(tk.END, line, tag)
+        txt.config(state=tk.DISABLED)
+        txt.see(tk.END)
+        root.after(5000, refresh)   # auto-refresh every 5 s
+
+    btn_frame = tk.Frame(root, bg="#1e1e1e")
+    btn_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
+
+    _btn_cfg = dict(bg="#2d2d2d", fg="#d4d4d4", activebackground="#3d3d3d",
+                    activeforeground="#ffffff", relief=tk.FLAT, padx=12, pady=4)
+    tk.Button(btn_frame, text="Refresh now", command=refresh, **_btn_cfg).pack(side=tk.LEFT)
+    tk.Button(btn_frame, text="Open raw file",
+              command=lambda: os.startfile(log_path) if os.path.exists(log_path) else None,
+              **_btn_cfg).pack(side=tk.LEFT, padx=6)
+    tk.Button(btn_frame, text="Close", command=root.destroy, **_btn_cfg).pack(side=tk.RIGHT)
+
+    refresh()
+    root.mainloop()
+
+# ── Icon / image ──────────────────────────────────────────────────────────────
 
 def _load_image(here: str):
     from PIL import Image
@@ -38,27 +137,37 @@ def _reload_region(cfg: dict, here: str) -> None:
             except Exception:
                 pass
 
+# ── Main tray entry point ────────────────────────────────────────────────────
 
 def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
              startup_update: str | None = None) -> None:
     import pystray
     import updater as _updater
 
-    stop_event = threading.Event()
-    pause_event = threading.Event()   # set = paused
-    notify_holder: list = [None]      # icon.notify, set after icon is visible
-    update_tag: list = [startup_update]  # [version_str] or [None]
+    stop_event    = threading.Event()
+    pause_event   = threading.Event()   # set = paused
+    notify_holder: list = [None]        # icon.notify, set after icon is visible
+    icon_holder:   list = [None]        # icon ref for tooltip updates
+    update_tag:    list = [startup_update]
 
     ALERT_SEVERITIES = {"critical", "high"}
+
+    # ── callbacks from agent thread ──────────────────────────────────────────
 
     def on_event(ev: dict) -> None:
         fn = notify_holder[0]
         if fn and ev.get("severity") in ALERT_SEVERITIES:
             fn(ev.get("raw", "")[:120], f"ASA {ev.get('category', 'event').title()}")
 
+    def on_status(msg: str) -> None:
+        ic = icon_holder[0]
+        if ic:
+            ic.title = f"ASA Log Agent {version} • {msg}"
+
     def _agent() -> None:
         run_fn(cfg, dry=False, once=False,
-               stop_event=stop_event, pause_event=pause_event, notify_fn=on_event)
+               stop_event=stop_event, pause_event=pause_event,
+               notify_fn=on_event, status_fn=on_status)
 
     # ── pause / resume ────────────────────────────────────────────────────────
 
@@ -72,7 +181,13 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
     def pause_label(_item) -> str:
         return "Resume" if pause_event.is_set() else "Pause"
 
-    # ── recalibrate ───────────────────────────────────────────────────────────
+    # ── autostart ─────────────────────────────────────────────────────────────
+
+    def on_autostart(_icon, _item) -> None:
+        _set_autostart(not _get_autostart())
+        _icon.update_menu()
+
+    # ── recalibrate ──────────────────────────────────────────────────────────
 
     def _do_recalibrate(_icon) -> None:
         was_paused = pause_event.is_set()
@@ -98,12 +213,10 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
     def on_recalibrate(_icon, _item) -> None:
         threading.Thread(target=_do_recalibrate, args=(_icon,), daemon=True).start()
 
-    # ── open log ──────────────────────────────────────────────────────────────
+    # ── log viewer ────────────────────────────────────────────────────────────
 
-    def on_open_log(_icon, _item) -> None:
-        log = os.path.join(here, "agent.log")
-        if os.path.exists(log):
-            os.startfile(log)
+    def on_view_log(_icon, _item) -> None:
+        threading.Thread(target=_show_log_window, args=(here,), daemon=True).start()
 
     # ── updates ───────────────────────────────────────────────────────────────
 
@@ -141,9 +254,11 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
         pystray.MenuItem(f"ASA Log Agent {version}", None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(pause_label, on_pause_resume),
-        pystray.MenuItem("Recalibrate region", on_recalibrate),
+        pystray.MenuItem("Start with Windows", on_autostart,
+                         checked=lambda _: _get_autostart()),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Open Log", on_open_log),
+        pystray.MenuItem("Recalibrate region", on_recalibrate),
+        pystray.MenuItem("View Log",           on_view_log),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(
             lambda _: f"Update available: {update_tag[0]}",
@@ -159,8 +274,10 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
         pystray.MenuItem("Quit", on_quit),
     )
 
+    # CRITICAL: thread starts in setup() callback, only after icon is visible.
     def setup(icon) -> None:
-        icon.visible = True
+        icon.visible    = True
+        icon_holder[0]  = icon
         notify_holder[0] = icon.notify
         threading.Thread(target=_agent, daemon=True, name="asa-agent").start()
 

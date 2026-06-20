@@ -99,6 +99,8 @@ def load_config(path: str) -> dict:
         "region": region,
         "fuzzy_threshold": float(a.get("fuzzy_threshold", "0.72")),
         "tesseract_path": a.get("tesseract_path", "").strip() or None,
+        # psm 4 (single column, variable sizes) is better than 6 for the ARK log panel.
+        "ocr_psm": int(a.get("ocr_psm", "4")),
         "queue_file": _resolve(a.get("queue_file", "offline_queue.jsonl").strip()),
         "dedup_window": int(a.get("dedup_window", "200")),
         # Similarity (0-1) above which a line counts as a duplicate of a recent one.
@@ -172,7 +174,8 @@ def _norm(raw: str) -> str:
     return _NORM_RE.sub("", raw.lower())
 
 
-def run(cfg: dict, dry: bool, once: bool, stop_event=None, pause_event=None, notify_fn=None) -> int:
+def run(cfg: dict, dry: bool, once: bool, stop_event=None, pause_event=None,
+        notify_fn=None, status_fn=None) -> int:
     if cfg["region"] is None:
         region = None
         if _calibrate is not None:
@@ -222,7 +225,7 @@ def run(cfg: dict, dry: bool, once: bool, stop_event=None, pause_event=None, not
         try:
             scan += 1
             img = ocr.grab_region(cfg["region"])
-            text = ocr.image_to_text(img, cfg["tesseract_path"])
+            text = ocr.image_to_text(img, cfg["tesseract_path"], psm=cfg.get("ocr_psm", 4))
             events = logparse.parse_text(text, cfg["fuzzy_threshold"])
             fresh = []
             for ev in events:
@@ -236,6 +239,8 @@ def run(cfg: dict, dry: bool, once: bool, stop_event=None, pause_event=None, not
             # Heartbeat so it never looks frozen: chars OCR'd / log lines / new.
             print(f"  scan #{scan}: {len(text.strip())} chars, "
                   f"{len(events)} log line(s), {len(fresh)} new", flush=True)
+            if status_fn:
+                status_fn(f"scan #{scan} • {len(fresh)} new")
             if fresh and not dry:
                 pending = queue.drain() + fresh
                 if post(cfg["api_url"], cfg["token"], cfg["server_label"], pending):

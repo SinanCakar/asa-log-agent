@@ -11,6 +11,12 @@ Typical ARK tribe-log lines (rich-text tags already stripped):
     Day 12345, 10:00:00: Bob was added to the Tribe!
     Day 12345, 12:00:00: Tribemember Bob - Lvl 105 Tamed a Raptor - Lvl 5!
     Day 12345, 12:00:00: Bob demolished a 'Stone Foundation'!
+    Day 12345, 13:00:00: A Baby Rex - Lvl 1 has been born!
+    Day 12345, 14:00:00: Bob cryo'd 'Rex - Lvl 50'!
+    Day 12345, 14:30:00: Bob deployed 'Rex - Lvl 50' from a Cryopod!
+    Day 12345, 15:00:00: Bob - Lvl 50 starved to death!
+    Day 12345, 16:00:00: Your Tribe allied with 'EnemyTribe'!
+    Day 12345, 17:00:00: Bob's 'Rex - Lvl 50' completed 100% Imprint!
 """
 from __future__ import annotations
 
@@ -23,11 +29,13 @@ from typing import Optional
 # Action keywords whose presence drives classification. OCR may mangle these,
 # so single tokens in the line are fuzzily snapped to this set first.
 CATEGORY_KEYWORDS = {
-    "raid": ("destroyed", "demolished", "auto-decay", "auto-destroyed"),
-    "kill": ("killed", "died", "slain"),
-    "member": ("added", "removed", "joined", "left", "promoted", "demoted"),
-    "tame": ("tamed", "hatched", "raised", "imprinted"),
-    "claim": ("claimed", "unclaimed", "uploaded", "downloaded"),
+    "raid":     ("destroyed", "demolished", "auto-decay", "auto-destroyed"),
+    "kill":     ("killed", "died", "slain", "starved", "drowned"),
+    "member":   ("added", "removed", "joined", "left", "promoted", "demoted"),
+    "tame":     ("tamed", "hatched", "raised", "imprinted", "born"),
+    "claim":    ("claimed", "unclaimed", "uploaded", "downloaded"),
+    "cryo":     ("cryo",),      # "cryo'd" and "cryopod" both fuzzy-snap to this
+    "alliance": ("allied",),
 }
 # Flat keyword -> category lookup, plus a vocab list for fuzzy snapping.
 _KW_TO_CAT: dict[str, str] = {}
@@ -39,11 +47,35 @@ _VOCAB = list(_KW_TO_CAT)
 # PHRASE triggers (substring match on a normalized line) for multi-word events
 # that aren't a single token, e.g. "added to the tribe".
 PHRASE_KEYWORDS = {
-    "raid": ["destroyed", "demolished", "auto-decay"],
-    "kill": ["killed", "slain"],
-    "member": ["added to the tribe", "removed from the tribe", "was added", "was removed"],
-    "tame": ["tamed", "hatched", "imprint", "raised"],
-    "claim": ["claimed", "unclaimed", "uploaded", "downloaded"],
+    "raid": [
+        "destroyed", "demolished", "auto-decay", "auto destroyed",
+    ],
+    "kill": [
+        "killed", "slain",
+        "starved to death", "drowned",                 # environment deaths
+        "was killed by", "tribemember was killed",
+    ],
+    "member": [
+        "added to the tribe", "removed from the tribe",
+        "was added", "was removed",
+        "left the tribe", "promoted to", "demoted in",
+    ],
+    "tame": [
+        "tamed", "hatched", "raised", "imprint",
+        "has been born", "baby",                        # breeding
+        "completed imprint", "imprint timer",           # imprint events
+        "100 imprint",                                  # "100% Imprint" after _fold
+    ],
+    "claim":    ["claimed", "unclaimed", "uploaded", "downloaded"],
+    "cryo": [
+        "cryopod", "cryo d", "deployed from cryopod",  # "cryo'd" folds to "cryo d"
+        "from a cryopod", "into cryopod",
+    ],
+    "alliance": [
+        "allied with", "tribe alliance",
+        "alliance accepted", "alliance declined",
+        "ended their alliance", "alliance has been",
+    ],
 }
 
 
@@ -56,12 +88,14 @@ _FOLDED_PHRASES = [(_fold(p), cat) for cat, ps in PHRASE_KEYWORDS.items() for p 
 
 # Severity defaults per category (rule engine baseline; user rules override later).
 DEFAULT_SEVERITY = {
-    "raid": "critical",
-    "kill": "high",
-    "member": "medium",
-    "tame": "low",
-    "claim": "medium",
-    "other": "low",
+    "raid":     "critical",
+    "kill":     "high",
+    "member":   "medium",
+    "tame":     "low",
+    "claim":    "medium",
+    "cryo":     "low",
+    "alliance": "medium",
+    "other":    "low",
 }
 
 # --- regexes --------------------------------------------------------------

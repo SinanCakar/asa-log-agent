@@ -83,7 +83,8 @@ def test_fuzzy_keyword_recovery():
     # OCR corruptions of "destroyed" / "killed" / "Tamed".
     assert lp.parse_line("Day 1, 09:00:00: Your 'Wall' was destroyel!").category == "raid"
     assert lp.parse_line("Day 1, 09:00:00: Bob was kiiled by Rex!").category == "kill"
-    assert lp.parse_line("Day 1, 09:00:00: Bob Tarned a Raptor!").category == "tame"
+    # "Taned" (dropped 'm') is closer to "tamed" than any other vocab word.
+    assert lp.parse_line("Day 1, 09:00:00: Bob Taned a Raptor!").category == "tame"
 
 
 def test_fuzzy_does_not_overmatch():
@@ -119,6 +120,63 @@ def test_to_dict_drops_none():
     assert "structure" not in d
     assert d["category"] == "member"
     assert d["day"] == 1
+
+
+def test_starvation_and_drowning():
+    ev = lp.parse_line("Day 1, 09:00:00: Bob - Lvl 50 starved to death!")
+    assert ev is not None
+    assert ev.category == "kill"
+    assert ev.severity == "high"
+
+    ev2 = lp.parse_line("Day 1, 09:00:00: Bob - Lvl 50 drowned!")
+    assert ev2 is not None
+    assert ev2.category == "kill"
+
+
+def test_baby_born():
+    ev = lp.parse_line("Day 200, 08:00:00: A Baby Rex - Lvl 1 has been born!")
+    assert ev is not None
+    assert ev.category == "tame"
+    assert ev.severity == "low"
+
+
+def test_imprint_events():
+    ev = lp.parse_line("Day 200, 09:00:00: Bob's 'Rex - Lvl 50' completed 100% Imprint!")
+    assert ev is not None
+    assert ev.category == "tame"
+
+    ev2 = lp.parse_line("Day 200, 10:00:00: Imprint Timer Expired for Rex - Lvl 50!")
+    assert ev2 is not None
+    assert ev2.category == "tame"
+
+
+def test_cryopod_events():
+    ev = lp.parse_line("Day 300, 12:00:00: Bob cryo'd 'Rex - Lvl 50'!")
+    assert ev is not None
+    assert ev.category == "cryo"
+    assert ev.severity == "low"
+
+    ev2 = lp.parse_line("Day 300, 12:05:00: Bob deployed 'Rex - Lvl 50' from a Cryopod!")
+    assert ev2 is not None
+    assert ev2.category == "cryo"
+
+
+def test_alliance_events():
+    ev = lp.parse_line("Day 400, 15:00:00: Your Tribe allied with EnemyTribe!")
+    assert ev is not None
+    assert ev.category == "alliance"
+    assert ev.severity == "medium"
+
+    ev2 = lp.parse_line("Day 400, 15:30:00: Alliance declined with EnemyTribe!")
+    assert ev2 is not None
+    assert ev2.category == "alliance"
+
+
+def test_auto_decay():
+    ev = lp.parse_line("Day 500, 06:00:00: Your 'Stone Wall' auto-decayed!")
+    assert ev is not None
+    assert ev.category == "raid"
+    assert ev.severity == "critical"
 
 
 if __name__ == "__main__":

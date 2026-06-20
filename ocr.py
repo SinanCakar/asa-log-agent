@@ -28,16 +28,21 @@ def preprocess(img):
 
 
 def image_to_text(img, tesseract_path: Optional[str] = None, lang: str = "eng",
-                  do_preprocess: bool = True) -> str:
-    """Run tesseract on a PIL image and return raw text."""
+                  do_preprocess: bool = True, psm: int = 4) -> str:
+    """Run tesseract on a PIL image and return raw text.
+
+    psm 4 (single column, variable sizes) works better than psm 6 for the ARK
+    tribe-log panel: lines vary in length and font weight, so the "uniform block"
+    assumption of psm 6 causes Tesseract to merge or skip rows.
+    Override via agent.ini: ocr_psm = 6
+    """
     import pytesseract
 
     if tesseract_path:
         pytesseract.pytesseract.tesseract_cmd = tesseract_path
     if do_preprocess:
         img = preprocess(img)
-    # psm 6: assume a uniform block of text (the log panel is exactly that).
-    return pytesseract.image_to_string(img, lang=lang, config="--psm 6")
+    return pytesseract.image_to_string(img, lang=lang, config=f"--psm {psm}")
 
 
 def grab_region(region):
