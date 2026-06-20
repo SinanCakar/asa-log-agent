@@ -285,8 +285,8 @@ def main() -> None:
             run_tray(cfg, HERE, run, updater.__version__)
             sys.exit(0)
         except Exception as exc:
-            logf(f"tray failed ({exc}); falling back to console mode")
-            print(f"Tray unavailable ({exc}); running in console mode.", flush=True)
+            logf(f"tray failed: {exc!r}")
+            sys.exit(f"ERROR: system tray unavailable ({exc}). Run with --console flag.")
 
     print(f"ASA Log Agent {updater.__version__}", flush=True)
     sys.exit(run(cfg, args.dry, args.once))

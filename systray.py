@@ -1,30 +1,33 @@
 """System-tray host for ASA Log Agent.
 
-Runs the capture loop in a daemon thread; the tray icon lives on the main thread
-(required by pystray on Windows). Events with severity raid/kill trigger a balloon
-notification so the user knows something happened without opening the log.
+Runs the capture loop in a daemon thread started inside pystray's setup
+callback — so the thread only starts after the icon is confirmed visible.
+Events with severity raid/kill trigger a balloon notification.
 """
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from typing import Callable
 
 
 def _load_image(here: str):
     from PIL import Image
-    path = os.path.join(here, "icon.png")
-    if os.path.exists(path):
-        return Image.open(path).convert("RGBA").resize((64, 64))
-    # Fallback: machinebot orange square
-    return Image.new("RGBA", (64, 64), (243, 140, 31, 255))
+    # Check exe folder (installer copy) then PyInstaller bundle (_MEIPASS)
+    for d in [here, getattr(sys, "_MEIPASS", None)]:
+        if d:
+            p = os.path.join(d, "icon.png")
+            if os.path.exists(p):
+                return Image.open(p).convert("RGBA").resize((64, 64))
+    return Image.new("RGBA", (64, 64), (243, 140, 31, 255))  # machinebot orange fallback
 
 
 def run_tray(cfg: dict, here: str, run_fn: Callable, version: str) -> None:
     import pystray
 
     stop_event = threading.Event()
-    notify_holder: list = [None]  # filled after icon is created
+    notify_holder: list = [None]
 
     ALERT_SEVERITIES = {"critical", "high"}
 
@@ -37,17 +40,21 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str) -> None:
     def _agent() -> None:
         run_fn(cfg, dry=False, once=False, stop_event=stop_event, notify_fn=on_event)
 
-    t = threading.Thread(target=_agent, daemon=True, name="asa-agent")
-    t.start()
-
     def on_open_log(_icon, _item) -> None:
         log = os.path.join(here, "agent.log")
         if os.path.exists(log):
-            os.startfile(log)  # opens in default text viewer (Notepad on most Windows)
+            os.startfile(log)
 
     def on_quit(_icon, _item) -> None:
         stop_event.set()
         _icon.stop()
+
+    def setup(icon) -> None:
+        # Called by pystray after the icon is shown — safe to start the agent now.
+        icon.visible = True
+        notify_holder[0] = icon.notify
+        t = threading.Thread(target=_agent, daemon=True, name="asa-agent")
+        t.start()
 
     icon = pystray.Icon(
         "ASA Log Agent",
@@ -61,5 +68,4 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str) -> None:
             pystray.MenuItem("Quit", on_quit),
         ),
     )
-    notify_holder[0] = icon.notify
-    icon.run()  # blocks until on_quit
+    icon.run(setup=setup)  # blocks until on_quit; setup fires once icon is visible

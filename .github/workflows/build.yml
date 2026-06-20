@@ -36,22 +36,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      - name: Convert icon PNG to ICO
+        run: >
+          python -c "from PIL import Image;
+          img=Image.open('icon.png').convert('RGBA');
+          img.save('installer/icon.ico',format='ICO',
+          sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
       - name: Build agent exe
         run: >
           pyinstaller --onefile --name ASA_LogAgent
           --noconsole
-          --icon icon.png
+          --icon installer/icon.ico
           --add-data "agent.ini;."
           --add-data "icon.png;."
           --hidden-import _version
           --hidden-import tkinter
           --hidden-import PIL.ImageTk
           --hidden-import pystray
+          --hidden-import pystray._win32
           asa_log_agent.py
 
       - name: Build calibration exe
         run: >
           pyinstaller --onefile --name ASA_LogAgent_Calibrate
+          --icon installer/icon.ico
           --hidden-import tkinter --hidden-import PIL.ImageTk
           calibrate.py
 

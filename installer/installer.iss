@@ -25,6 +25,8 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
+SetupIconFile=icon.ico
+UninstallDisplayIcon={app}\ASA_LogAgent.exe
 
 [Files]
 Source: "..\dist\ASA_LogAgent.exe";           DestDir: "{app}"; Flags: ignoreversion
