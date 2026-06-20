@@ -5,6 +5,13 @@ Thread model:
 - setup() callback: starts the agent daemon thread after icon is visible.
 - Menu callbacks: run on the pystray thread; slow ops (recalibrate, update
   check, log viewer) are delegated to short-lived daemon threads.
+
+Resilience:
+- If the agent capture loop exits unexpectedly it is restarted automatically
+  (stop_event not set = unintentional exit).
+- If pystray's Win32 message pump exits unexpectedly (e.g. after a system
+  sleep/wake or Explorer restart) the icon is recreated and run again.
+- All unexpected exits are written to agent.log via the passed logf callable.
 """
 from __future__ import annotations
 
@@ -13,6 +20,8 @@ import os
 import subprocess
 import sys
 import threading
+import time
+import traceback
 from typing import Callable
 
 # ── Windows autostart registry helpers ───────────────────────────────────────
@@ -140,7 +149,12 @@ def _reload_region(cfg: dict, here: str) -> None:
 # ── Main tray entry point ────────────────────────────────────────────────────
 
 def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
-             startup_update: str | None = None) -> None:
+             startup_update: str | None = None,
+             logf: Callable[[str], None] | None = None) -> None:
+
+    if logf is None:
+        logf = lambda _msg: None   # no-op fallback if caller doesn't pass one
+
     import pystray
     import updater as _updater
 
@@ -149,6 +163,7 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
     notify_holder: list = [None]        # icon.notify, set after icon is visible
     icon_holder:   list = [None]        # icon ref for tooltip updates
     update_tag:    list = [startup_update]
+    agent_started: list = [False]       # guards against spawning a second agent on pystray restart
 
     ALERT_SEVERITIES = {"critical", "high"}
 
@@ -157,17 +172,36 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
     def on_event(ev: dict) -> None:
         fn = notify_holder[0]
         if fn and ev.get("severity") in ALERT_SEVERITIES:
-            fn(ev.get("raw", "")[:120], f"ASA {ev.get('category', 'event').title()}")
+            try:
+                fn(ev.get("raw", "")[:120], f"ASA {ev.get('category', 'event').title()}")
+            except Exception as exc:
+                logf(f"notify error (ignored): {exc!r}")
 
     def on_status(msg: str) -> None:
         ic = icon_holder[0]
         if ic:
-            ic.title = f"ASA Log Agent {version} • {msg}"
+            try:
+                ic.title = f"ASA Log Agent {version} • {msg}"
+            except Exception:
+                pass
+
+    # ── agent thread — restarts automatically if it exits without stop_event ─
 
     def _agent() -> None:
-        run_fn(cfg, dry=False, once=False,
-               stop_event=stop_event, pause_event=pause_event,
-               notify_fn=on_event, status_fn=on_status)
+        while not stop_event.is_set():
+            try:
+                run_fn(cfg, dry=False, once=False,
+                       stop_event=stop_event, pause_event=pause_event,
+                       notify_fn=on_event, status_fn=on_status)
+            except Exception:
+                logf("AGENT CRASH:\n" + traceback.format_exc())
+
+            if stop_event.is_set():
+                break
+            logf("WARNING: capture loop exited unexpectedly — restarting in 5s")
+            stop_event.wait(5)
+
+        logf("agent thread stopped")
 
     # ── pause / resume ────────────────────────────────────────────────────────
 
@@ -228,11 +262,17 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
                 update_tag[0] = tag
                 _icon.update_menu()
                 if fn:
-                    fn(f"Version {tag} is available — open the tray menu to update.",
-                       "ASA Log Agent — Update available")
+                    try:
+                        fn(f"Version {tag} is available — open the tray menu to update.",
+                           "ASA Log Agent — Update available")
+                    except Exception:
+                        pass
             else:
                 if fn:
-                    fn("You are on the latest version.", "ASA Log Agent")
+                    try:
+                        fn("You are on the latest version.", "ASA Log Agent")
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -245,6 +285,7 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
     # ── quit ─────────────────────────────────────────────────────────────────
 
     def on_quit(_icon, _item) -> None:
+        logf("tray: Quit clicked")
         stop_event.set()
         _icon.stop()
 
@@ -274,12 +315,42 @@ def run_tray(cfg: dict, here: str, run_fn: Callable, version: str,
         pystray.MenuItem("Quit", on_quit),
     )
 
-    # CRITICAL: thread starts in setup() callback, only after icon is visible.
+    # CRITICAL: agent thread starts in setup() only after icon is confirmed visible.
+    # agent_started guard prevents spawning a second thread if pystray restarts.
     def setup(icon) -> None:
         icon.visible    = True
         icon_holder[0]  = icon
         notify_holder[0] = icon.notify
-        threading.Thread(target=_agent, daemon=True, name="asa-agent").start()
+        if not agent_started[0]:
+            agent_started[0] = True
+            threading.Thread(target=_agent, daemon=True, name="asa-agent").start()
 
-    icon = pystray.Icon("ASA Log Agent", _load_image(here), f"ASA Log Agent {version}", menu)
-    icon.run(setup=setup)
+    # ── pystray restart loop ──────────────────────────────────────────────────
+    # If pystray's Win32 message pump exits for any reason other than on_quit
+    # (e.g. Explorer restart, sleep/wake, AV interference), recreate the icon
+    # and run again. The agent thread keeps running through restarts.
+
+    tray_restarts = 0
+    MAX_RESTARTS  = 10
+
+    while not stop_event.is_set() and tray_restarts <= MAX_RESTARTS:
+        icon = pystray.Icon("ASA Log Agent", _load_image(here),
+                            f"ASA Log Agent {version}", menu)
+        try:
+            icon.run(setup=setup)
+        except Exception:
+            logf("pystray exception:\n" + traceback.format_exc())
+
+        if stop_event.is_set():
+            logf("tray: icon stopped cleanly")
+            break
+
+        tray_restarts += 1
+        logf(f"WARNING: pystray exited without Quit (restart {tray_restarts}/{MAX_RESTARTS}) — "
+             "retrying in 3s")
+        icon_holder[0]   = None
+        notify_holder[0] = None
+        time.sleep(3)
+
+    if tray_restarts > MAX_RESTARTS:
+        logf("ERROR: pystray failed to stay alive after repeated restarts; exiting")

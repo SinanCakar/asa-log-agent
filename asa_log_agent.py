@@ -298,7 +298,9 @@ def main() -> None:
     if tray_mode:
         try:
             from systray import run_tray
-            run_tray(cfg, HERE, run, updater.__version__, startup_update=startup_update)
+            run_tray(cfg, HERE, run, updater.__version__,
+                     startup_update=startup_update, logf=logf)
+            logf("=== tray exited ===")
             sys.exit(0)
         except Exception as exc:
             logf(f"tray failed: {exc!r}")
