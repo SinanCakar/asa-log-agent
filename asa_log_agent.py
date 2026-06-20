@@ -172,7 +172,7 @@ def _norm(raw: str) -> str:
     return _NORM_RE.sub("", raw.lower())
 
 
-def run(cfg: dict, dry: bool, once: bool) -> int:
+def run(cfg: dict, dry: bool, once: bool, stop_event=None, notify_fn=None) -> int:
     if cfg["region"] is None:
         region = None
         if _calibrate is not None:
@@ -212,7 +212,7 @@ def run(cfg: dict, dry: bool, once: bool) -> int:
     print("Keep the tribe-log panel visible. Only 'Day N, HH:MM:SS:' lines are "
           "sent. (Ctrl+C to quit)", flush=True)
     scan = 0
-    while True:
+    while not (stop_event and stop_event.is_set()):
         try:
             scan += 1
             img = ocr.grab_region(cfg["region"])
@@ -223,7 +223,10 @@ def run(cfg: dict, dry: bool, once: bool) -> int:
                 d = ev.to_dict()
                 if remember(d.get("raw", "")):
                     fresh.append(d)
+                    logf(f"[{ev.severity}] {ev.category}: {ev.raw}")
                     print(f"  [{ev.severity}] {ev.category}: {ev.raw}", flush=True)
+                    if notify_fn:
+                        notify_fn(d)
             # Heartbeat so it never looks frozen: chars OCR'd / log lines / new.
             print(f"  scan #{scan}: {len(text.strip())} chars, "
                   f"{len(events)} log line(s), {len(fresh)} new", flush=True)
@@ -241,29 +244,52 @@ def run(cfg: dict, dry: bool, once: bool) -> int:
             logf(f"capture/parse error: {e!r}")
         if once:
             return 0
-        time.sleep(cfg["interval"])
+        if stop_event:
+            stop_event.wait(cfg["interval"])
+        else:
+            time.sleep(cfg["interval"])
 
 
 def main() -> None:
+    # --noconsole PyInstaller build sets stdout/stderr to None; redirect to log.
+    if sys.stdout is None:
+        import io
+        _lf = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+        sys.stdout = _lf
+        sys.stderr = _lf
+
     ap = argparse.ArgumentParser(description="ASA in-game tribe-log OCR agent")
     ap.add_argument("--config", default=os.path.join(HERE, "agent.ini"))
     ap.add_argument("--dry", action="store_true", help="parse and print only; post nothing")
     ap.add_argument("--once", action="store_true", help="single capture then exit")
+    ap.add_argument("--console", action="store_true", help="run in console instead of system tray")
     ap.add_argument("--update", action="store_true", help="download + launch the latest installer")
     ap.add_argument("--no-update-check", action="store_true", help="skip the startup version check")
     args = ap.parse_args()
 
-    print(f"ASA Log Agent {updater.__version__}", flush=True)
     logf(f"=== started {updater.__version__} (dry={args.dry}, once={args.once}) ===")
     if args.update:
         sys.exit(updater.download_and_launch())
     if not args.no_update_check:
         tag, setup = updater.check()
         if tag:
+            logf(f"UPDATE AVAILABLE: {tag}")
             print(f"*** UPDATE AVAILABLE: {tag} (current {updater.__version__}) ***", flush=True)
             print(f"    Update: ASA_LogAgent.exe --update   |  download: {setup}", flush=True)
 
-    sys.exit(run(load_config(args.config), args.dry, args.once))
+    cfg = load_config(args.config)
+    tray_mode = not (args.dry or args.once or args.console)
+    if tray_mode:
+        try:
+            from systray import run_tray
+            run_tray(cfg, HERE, run, updater.__version__)
+            sys.exit(0)
+        except Exception as exc:
+            logf(f"tray failed ({exc}); falling back to console mode")
+            print(f"Tray unavailable ({exc}); running in console mode.", flush=True)
+
+    print(f"ASA Log Agent {updater.__version__}", flush=True)
+    sys.exit(run(cfg, args.dry, args.once))
 
 
 if __name__ == "__main__":

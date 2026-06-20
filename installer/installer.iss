@@ -29,6 +29,7 @@ DisableProgramGroupPage=yes
 [Files]
 Source: "..\dist\ASA_LogAgent.exe";           DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\ASA_LogAgent_Calibrate.exe";  DestDir: "{app}"; Flags: ignoreversion
+Source: "..\icon.png";                         DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.txt";                       DestDir: "{app}"; Flags: ignoreversion
 ; Pinned Tesseract installer, downloaded into vendor\ by the workflow.
 Source: "vendor\tesseract-setup.exe";          DestDir: "{tmp}"; Flags: deleteafterinstall

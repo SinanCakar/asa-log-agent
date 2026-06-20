@@ -39,10 +39,14 @@ jobs:
       - name: Build agent exe
         run: >
           pyinstaller --onefile --name ASA_LogAgent
+          --noconsole
+          --icon icon.png
           --add-data "agent.ini;."
+          --add-data "icon.png;."
           --hidden-import _version
           --hidden-import tkinter
           --hidden-import PIL.ImageTk
+          --hidden-import pystray
           asa_log_agent.py
 
       - name: Build calibration exe
