@@ -28,6 +28,11 @@ import logparse
 import ocr
 import updater
 
+try:
+    import calibrate as _calibrate
+except ImportError:
+    _calibrate = None
+
 
 def _base_dir() -> str:
     """Folder of the running program. Under a PyInstaller onefile build, this is
@@ -169,8 +174,19 @@ def _norm(raw: str) -> str:
 
 def run(cfg: dict, dry: bool, once: bool) -> int:
     if cfg["region"] is None:
-        print("ERROR: no capture region set. Run calibrate.py first.", flush=True)
-        return 2
+        region = None
+        if _calibrate is not None:
+            try:
+                print("No region configured — drag to select the tribe-log panel …", flush=True)
+                region = _calibrate.gui_select()
+            except Exception as exc:
+                print(f"GUI unavailable ({exc}).", flush=True)
+        if region is None:
+            print("ERROR: no capture region set. Run ASA_LogAgent_Calibrate.exe to select it.",
+                  flush=True)
+            return 2
+        _calibrate.write_region(region)
+        cfg["region"] = region
     dry = dry or not cfg["token"] or not cfg["api_url"]
     if dry:
         print("DRY-RUN: parsing and printing only; nothing is sent.", flush=True)

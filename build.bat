@@ -3,6 +3,8 @@ echo === ASA Log Agent build (Windows) ===
 pip install pyinstaller mss pytesseract Pillow
 pyinstaller --onefile --name ASA_LogAgent ^
   --add-data "agent.ini;." ^
+  --hidden-import tkinter ^
+  --hidden-import PIL.ImageTk ^
   asa_log_agent.py
 echo.
 echo Done: dist\ASA_LogAgent.exe

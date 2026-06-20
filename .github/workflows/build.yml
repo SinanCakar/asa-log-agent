@@ -41,6 +41,8 @@ jobs:
           pyinstaller --onefile --name ASA_LogAgent
           --add-data "agent.ini;."
           --hidden-import _version
+          --hidden-import tkinter
+          --hidden-import PIL.ImageTk
           asa_log_agent.py
 
       - name: Build calibration exe
